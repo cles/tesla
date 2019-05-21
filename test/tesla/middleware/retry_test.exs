@@ -73,6 +73,51 @@ defmodule Tesla.Middleware.RetryTest do
              ClientWithShouldRetryFunction.get("/retry_status")
   end
 
+  defmodule ClientWithDelayFunction do
+    use Tesla
+
+    def client(delay_fn) do
+      middleware = [
+        {
+          Tesla.Middleware.Retry,
+          [
+            max_retries: 10,
+            should_retry: fn
+              {:ok, %{status: status}} when status in [400, 500] -> true
+              {:ok, _} -> false
+              {:error, _} -> true
+            end,
+            delay: fn(_env, retries) ->
+              factor = :math.pow(2, retries)
+              :rand.uniform(trunc(10 * factor))
+            end
+          ]
+        }
+      ]
+
+      adapter = {LaggyAdapter}
+
+      Tesla.client(middleware, adapter)
+    end
+  end
+
+  test "use custom delay function" do
+    test_pid = self()
+
+    delay_fn = fn(_env, retries) ->
+      factor = :math.pow(2, retries)
+      delay = :rand.uniform(trunc(10 * factor))
+      #      delay = :rand.uniform(trunc(10 * factor))
+
+      send(test_pid, {:delay, delay})
+
+      delay
+    end
+
+    assert {:ok, %Tesla.Env{url: "/retry_status", method: :get, status: 200}} =
+             ClientWithDelayFunction.get("/retry_status")
+  end
+
   defmodule DefunctClient do
     use Tesla
 

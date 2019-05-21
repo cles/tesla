@@ -40,21 +40,28 @@ defmodule Tesla.Middleware.Retry do
     max_retries = Keyword.get(opts, :max_retries, @defaults[:max_retries])
     should_retry = Keyword.get(opts, :should_retry, &match?({:error, _}, &1))
 
-    retry(env, next, delay, max_retries, should_retry)
+    retry(env, next, delay, 0, max_retries, should_retry)
   end
 
-  defp retry(env, next, _delay, retries, _should_retry) when retries <= 1 do
+  defp retry(env, next, _delay, retries, max_retries, _should_retry) when retries >= max_retries do
     Tesla.run(env, next)
   end
 
-  defp retry(env, next, delay, retries, should_retry) do
+  defp retry(env, next, delay, retries, max_retries, should_retry) do
     res = Tesla.run(env, next)
 
     if should_retry.(res) do
-      :timer.sleep(delay)
-      retry(env, next, delay, retries - 1, should_retry)
+      delay_time = get_delay(delay, env, retries)
+      :timer.sleep(delay_time)
+      retry(env, next, delay, retries + 1, max_retries, should_retry)
     else
       res
     end
+  end
+
+  defp get_delay(delay_number, _env, _retries) when is_number(delay_number), do: delay_number
+
+  defp get_delay(delay_fn, env, retries) when is_function(delay_fn) do
+    delay_fn.(env, retries)
   end
 end
